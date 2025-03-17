@@ -1,0 +1,13 @@
+name: New Feature
+description: Please fill out the required fields
+title: "Change me"
+labels: ['enhancement']
+type: 'Feature'
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: "Description"
+      description: "Provide a detailed description of the issue"
+    validations:
+      required: true
