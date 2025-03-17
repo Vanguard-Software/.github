@@ -5,7 +5,7 @@ title: ''
 labels: ''
 assignees: ''
 type: 'Bug'
-
+labels: ['bug']
 ---
 
 **Describe the bug**
