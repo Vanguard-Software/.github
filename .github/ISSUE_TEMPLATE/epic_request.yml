@@ -1,0 +1,13 @@
+name: New Epic
+description: Please fill out the required fields
+title: "[Epic] "
+labels: ['enhancement']
+type: 'Epic'
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: "Description"
+      description: "Provide a detailed description of what is the perimeter of this Epic"
+    validations:
+      required: true
