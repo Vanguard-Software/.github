@@ -18,6 +18,13 @@ on:
         required: false
         type: boolean
         default: true
+    secrets:
+      VGS_BOT_APP_ID:
+        description: Client ID of the organization GitHub App used to query self-hosted runners.
+        required: false
+      VGS_BOT_PRIVATE_KEY:
+        description: Private key of the organization GitHub App used to query self-hosted runners.
+        required: false
     outputs:
       runner:
         description: JSON value suitable for fromJSON() in jobs.<job_id>.runs-on.
@@ -70,7 +77,7 @@ jobs:
             {
               echo "### Runner selection"
               echo
-              echo "Using GitHub-hosted fallback: `$FALLBACK_RUNNER`."
+              printf 'Using GitHub-hosted fallback: `%s`.\n' "$FALLBACK_RUNNER"
             } >> "$GITHUB_STEP_SUMMARY"
           }
 
@@ -80,16 +87,16 @@ jobs:
             exit 0
           fi
 
-          if ! runners_json="$(gh api             -H "X-GitHub-Api-Version: 2026-03-10"             "/orgs/$ORG/actions/runners?per_page=100"             2>/dev/null)"; then
+          if ! runners_json="$(gh api -H "X-GitHub-Api-Version: 2026-03-10" "/orgs/$ORG/actions/runners?per_page=100" 2>/dev/null)"; then
             echo "::warning::Unable to query organization runners. Ensure the GitHub App has Organization > Self-hosted runners: Read. Using the GitHub-hosted fallback."
             choose_fallback
             exit 0
           fi
 
           if [[ "$REQUIRE_IDLE" == "true" ]]; then
-            available_count="$(jq               --arg label "$TARGET_LABEL"               '[.runners[] | select(.status == "online" and .busy == false and (.labels | any(.name == $label)))] | length'               <<< "$runners_json")"
+            available_count="$(jq --arg label "$TARGET_LABEL" '[.runners[] | select(.status == "online" and .busy == false and (.labels | any(.name == $label)))] | length' <<< "$runners_json")"
           else
-            available_count="$(jq               --arg label "$TARGET_LABEL"               '[.runners[] | select(.status == "online" and (.labels | any(.name == $label)))] | length'               <<< "$runners_json")"
+            available_count="$(jq --arg label "$TARGET_LABEL" '[.runners[] | select(.status == "online" and (.labels | any(.name == $label)))] | length' <<< "$runners_json")"
           fi
 
           if (( available_count > 0 )); then
@@ -99,7 +106,7 @@ jobs:
             {
               echo "### Runner selection"
               echo
-              echo "Using self-hosted runner label: `$TARGET_LABEL`."
+              printf 'Using self-hosted runner label: `%s`.\n' "$TARGET_LABEL"
               echo
               echo "Matching available runners: $available_count."
             } >> "$GITHUB_STEP_SUMMARY"
