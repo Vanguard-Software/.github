@@ -1,0 +1,109 @@
+name: Select Linux runner
+
+on:
+  workflow_call:
+    inputs:
+      self_hosted_label:
+        description: Custom label identifying the preferred self-hosted Linux runner.
+        required: false
+        type: string
+        default: debian-self-hosted
+      fallback_runner:
+        description: GitHub-hosted runner used when no matching self-hosted runner is available.
+        required: false
+        type: string
+        default: ubuntu-latest
+      require_idle:
+        description: Fall back when all matching self-hosted runners are busy.
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      runner:
+        description: JSON value suitable for fromJSON() in jobs.<job_id>.runs-on.
+        value: ${{ jobs.select.outputs.runner }}
+      selected:
+        description: Either self-hosted or github-hosted.
+        value: ${{ jobs.select.outputs.selected }}
+
+jobs:
+  select:
+    name: Select runner
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      VGS_APP_CLIENT_ID: ${{ secrets.VGS_BOT_APP_ID }}
+      VGS_APP_PRIVATE_KEY: ${{ secrets.VGS_BOT_PRIVATE_KEY }}
+    outputs:
+      runner: ${{ steps.choose.outputs.runner }}
+      selected: ${{ steps.choose.outputs.selected }}
+
+    steps:
+      - name: Create organization-scoped GitHub App token
+        id: app-token
+        if: ${{ env.VGS_APP_CLIENT_ID != '' && env.VGS_APP_PRIVATE_KEY != '' }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ env.VGS_APP_CLIENT_ID }}
+          private-key: ${{ env.VGS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Choose runner
+        id: choose
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ORG: ${{ github.repository_owner }}
+          TARGET_LABEL: ${{ inputs.self_hosted_label }}
+          FALLBACK_RUNNER: ${{ inputs.fallback_runner }}
+          REQUIRE_IDLE: ${{ inputs.require_idle }}
+        run: |
+          set -euo pipefail
+
+          choose_fallback() {
+            local runner_json
+            runner_json="$(jq -cn --arg runner "$FALLBACK_RUNNER" '$runner')"
+            echo "runner=$runner_json" >> "$GITHUB_OUTPUT"
+            echo "selected=github-hosted" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Runner selection"
+              echo
+              echo "Using GitHub-hosted fallback: `$FALLBACK_RUNNER`."
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::warning::GitHub App token is unavailable; using the GitHub-hosted fallback."
+            choose_fallback
+            exit 0
+          fi
+
+          if ! runners_json="$(gh api             -H "X-GitHub-Api-Version: 2026-03-10"             "/orgs/$ORG/actions/runners?per_page=100"             2>/dev/null)"; then
+            echo "::warning::Unable to query organization runners. Ensure the GitHub App has Organization > Self-hosted runners: Read. Using the GitHub-hosted fallback."
+            choose_fallback
+            exit 0
+          fi
+
+          if [[ "$REQUIRE_IDLE" == "true" ]]; then
+            available_count="$(jq               --arg label "$TARGET_LABEL"               '[.runners[] | select(.status == "online" and .busy == false and (.labels | any(.name == $label)))] | length'               <<< "$runners_json")"
+          else
+            available_count="$(jq               --arg label "$TARGET_LABEL"               '[.runners[] | select(.status == "online" and (.labels | any(.name == $label)))] | length'               <<< "$runners_json")"
+          fi
+
+          if (( available_count > 0 )); then
+            runner_json="$(jq -cn --arg label "$TARGET_LABEL" '["self-hosted", $label]')"
+            echo "runner=$runner_json" >> "$GITHUB_OUTPUT"
+            echo "selected=self-hosted" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Runner selection"
+              echo
+              echo "Using self-hosted runner label: `$TARGET_LABEL`."
+              echo
+              echo "Matching available runners: $available_count."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::notice::No available runner with label '$TARGET_LABEL'; using '$FALLBACK_RUNNER'."
+            choose_fallback
+          fi
